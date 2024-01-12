@@ -1,0 +1,51 @@
+version: '2'
+services:
+  php:
+    container_name: hrd
+    image: hrd
+    restart: always
+    network_mode: dbnetwork
+    #user: "${UID}:${GID}"
+    volumes:
+      - ./:/var/www/html/
+    ports:
+      - 8086:80
+    # depends_on:
+    #   - db
+
+  # mysql:
+  #   image: mysql
+  #   restart: always
+  #   # network_mode: bridge
+  #   command: --default-authentication-plugin=mysql_native_password
+  #   environment:
+  #     MYSQL_ROOT_PASSWORD: root
+  #     MYSQL_DATABASE: test_db
+  #   ports:
+  #     - "3306:3306"
+  #   volumes:
+  #     - .docker/data/db:/var/lib/mysql
+
+  # db:
+  #   image: mariadb
+  #   restart: always
+  #   ports:
+  #     - 3306:3306
+  #   environment:
+  #     - MYSQL_ROOT_PASSWORD=root
+  #     - MYSQL_DATABASE=absen_db
+  #     - MYSQL_USER=root
+  #     - MYSQL_PASSWORD=root
+  #   volumes:
+  #     - ./db_data:/var/lib/mysql
+
+
+  # phpmyadmin:
+  #   image: phpmyadmin/phpmyadmin:latest
+  #   restart: always
+  #   links:
+  #     - db:db
+  #   ports:
+  #     - 8082:80
+  #   environment:
+  #     PMA_ARBITRARY: 1
