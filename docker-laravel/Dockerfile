@@ -1,26 +1,39 @@
 FROM php:8.2-apache
+# set main params
+ENV APP_HOME /var/www/html
+ARG HOST_UID=1000
+ARG HOST_GID=1000
+ENV USERNAME=www-data
 
-RUN apt-get update -y
-RUN apt-get -y install gcc make autoconf libc-dev pkg-config libzip-dev
 
-# 1. Install development packages and clean up apt cache.
-RUN apt-get install -y --no-install-recommends \
-    curl \
-    g++ \
-    git \
-    libbz2-dev \
-    libfreetype6-dev \
-    libicu-dev \
-    libjpeg-dev \
-    libmcrypt-dev \
-    libpng-dev \
-    libreadline-dev \
-    sudo \
-    unzip \
-    zip \
- && rm -rf /var/lib/apt/lists/*
+# install all the dependencies and enable PHP modules
+RUN apt-get update && apt-get upgrade -y && apt-get install -y \
+      procps \
+      nano \
+      git \
+      unzip \
+      libicu-dev \
+      zlib1g-dev \
+      libxml2 \
+      libxml2-dev \
+      libreadline-dev \
+     # supervisor \
+      #cron \
+      sudo \
+      libzip-dev \
+    && docker-php-ext-configure pdo_mysql --with-pdo-mysql=mysqlnd \
+    && docker-php-ext-configure intl \
+    && docker-php-ext-install \
+      pdo_mysql \
+      sockets \
+      intl \
+      opcache \
+      zip \
+    && rm -rf /tmp/* \
+    && rm -rf /var/list/apt/* \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
-# 2. Apache configs + document root.
 RUN echo "ServerName laravel-app.local" >> /etc/apache2/apache2.conf
 
 ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
@@ -31,29 +44,43 @@ RUN sed -ri -e 's!/var/www/!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/apache2.conf
 RUN a2enmod rewrite headers
 
 # 4. Start with base PHP config, then add extensions.
-RUN mv "$PHP_INI_DIR/php.ini-development" "$PHP_INI_DIR/php.ini"
+#RUN mv "$PHP_INI_DIR/php.ini-development" "$PHP_INI_DIR/php.ini"
 
-RUN apt-get update && apt-get install -y \
-        libfreetype6-dev \
-        libjpeg62-turbo-dev \
-        libpng-dev \
-    && docker-php-ext-configure gd --with-freetype --with-jpeg \
-    && docker-php-ext-install -j$(nproc) gd \
-    && docker-php-ext-install pdo_mysql \
-    && docker-php-ext-install mysqli \
-    && docker-php-ext-install opcache
-
-# 5. Composer.
-RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
-
-# 6. We need a user with the same UID/GID as the host user
-# so when we execute CLI commands, all the host file's permissions and ownership remain intact.
-# Otherwise commands from inside the container would create root-owned files and directories.
-#ARG uid
-#RUN useradd -G www-data,root -u $uid -d /home/devuser devuser
-#RUN mkdir -p /home/devuser/.composer && \
-#    chown -R devuser:devuser /home/devuser
 	
-RUN a2enmod rewrite
-RUN service apache2 restart
-#COPY . /var/www/html/
+# create document root, fix permissions for www-data user and change owner to www-data
+RUN mkdir -p $APP_HOME/public && \
+    mkdir -p /home/$USERNAME && chown $USERNAME:$USERNAME /home/$USERNAME \
+    && usermod -o -u $HOST_UID $USERNAME -d /home/$USERNAME \
+    && groupmod -o -g $HOST_GID $USERNAME \
+    && chown -R ${USERNAME}:${USERNAME} $APP_HOME
+      
+RUN a2enmod rewrite \
+&& chmod 755 /var/www/html -R \
+      && chown www-data:www-data /var/www/html 
+COPY composer.json composer.lock ./
+# Copy existing application directory contents
+COPY . .
+# install composer
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+RUN chmod +x /usr/bin/composer
+ENV COMPOSER_ALLOW_SUPERUSER 1
+
+# set working directory
+WORKDIR $APP_HOME
+
+RUN chown -R ${USERNAME}:${USERNAME} storage 
+RUN chmod -R 775 storage 
+
+USER ${USERNAME}
+RUN composer install --no-interaction --no-scripts --no-progress
+RUN php artisan key:generate && echo "Key generated successfully"
+#RUN php artisan migrate:fresh --seed && echo "Migration and seeding completed successfully"
+RUN php artisan storage:link && echo "Storage link created successfully"
+
+#COPY --chown=${USERNAME}:${USERNAME} ./run.sh /var/www/html/run.sh
+#RUN chmod +x /var/www/html/run.sh
+#ENTRYPOINT ["bash", "/var/www/html/run.sh"]
+CMD ["php", "artisan", "migrate", "--force"]
+CMD ["apache2-foreground"]
+USER root
+#RUN service apache2 restart
